@@ -3,11 +3,12 @@
 const pkg = require('../package.json')
 const program = require('commander')
 const _ = require('lodash')
+const YAML = require('js-yaml')
 
 var kosmonaut
 
 program.version(pkg.version)
-program.option('--format', 'Output serialization', /^(json|yaml)$/, 'yaml')
+program.option('--format', 'Output serialization', /^(json|yaml|dir)$/, 'yaml')
 program.option('--host', 'kOS host', '127.0.0.1')
 program.option('--port', 'kOS port', '5140' )
 
@@ -30,7 +31,20 @@ async function closeKosmonaut() {
 }
 
 function dumpSerialized( result ) {
-  console.dir( result )
+  switch( program.format ) {
+    case 'yaml':
+      console.log( YAML.dump( result ) )
+    break
+
+    case 'json':
+      console.log( JSON.stringify( result ) )
+    break
+
+    default:
+      console.dir( result )
+    break
+  }
+  
 }
 
 async function commandQuery( variable, cmd ) {

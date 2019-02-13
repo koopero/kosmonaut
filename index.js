@@ -50,8 +50,8 @@ const SEARCH = {
 
 const EventEmitter = require('events')
 
-function randomString( length = 8 ) {
-  let mask = 'jebediahkerman'
+function randomString( length = 4 ) {
+  let mask = 'jebediahkermanJEBEDIAHKERMANBILLBOBVALbillbobval'
   var result = ''
   for (var i = length; i > 0; --i) result += mask[Math.floor(Math.random() * mask.length)]
   return result
@@ -164,10 +164,20 @@ class Core extends EventEmitter {
 
   async query( variable, keys ) {
     await this.online()
+
+    // let defined = await this.queryBool( `(DEFINED ${variable})` )
+    // if ( !defined )
+    //   return null
+
     let type = await this.queryPrint( variable+':TYPENAME' )
 
-    if ( !type )
+    if ( !type ) {
+      process.exit()
       return null
+    }
+
+    if ( type.substr(0,4) == 'List' )
+      type = 'List'
     
     switch ( type ) {
       case 'Boolean':
@@ -179,6 +189,15 @@ class Core extends EventEmitter {
 
       case 'Scalar':
         return parseFloat( await this.queryPrint( variable ) )
+
+      case 'List':
+        let length = await this.query( variable+':LENGTH' )
+        let result = []
+        for ( let index = 0; index < length; index ++ ) {
+          result[index] = await this.query( variable+`[${index}]`)
+        }
+        return result
+  
     }
     
     if ( _.isArrayLikeObject( keys ) ) {
@@ -323,6 +342,7 @@ class Kosmonaut extends EventEmitter {
 
   onSocketData( data ) {
     data = data.toString('utf8')
+    console.log( data )
 
     if ( this._core ) 
       this._core.emit('data', data )
