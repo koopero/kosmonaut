@@ -10,6 +10,12 @@ KEYS.VesselBasic = {
   'TYPE':true,
 }
 
+KEYS.Archive = {
+  NAME: 1,
+  CAPACITY: 1,
+  FREESPACE: 1,
+}
+
 KEYS.Atmosphere = {
   // 'BODY':1,
   'EXISTS':1,
@@ -32,6 +38,15 @@ KEYS.Body = {
   'ANGULARVEL':1,
   'SOIRADIUS':1,
   'ROTATIONANGLE':1,
+}
+
+KEYS.Core = {
+  VESSEL: {
+    NAME:1,
+  },  
+  VOLUME: 1,
+  ELEMENT: 1,
+  VERSION: 1,
 }
 
 KEYS.CraftTemplate = {
@@ -65,7 +80,12 @@ KEYS.Engine = {
   HASGIMBAL: 1,
   // MODES: 1,
   // MODE: 1,
+}
 
+KEYS.LocalVolume = {
+  CAPACITY: 1,
+  FREESPACE: 1,
+  NAME: 1,
 }
 
 KEYS.Orbit = {
@@ -138,4 +158,10 @@ KEYS.Vessel = {
   'CONTROLPART':true,
   'DOCKINGPORTS':true,
   'CREWCAPACITY':true,
+}
+
+KEYS.Version= {
+  MAJOR: 1,
+  MINOR: 1,
+  PATCH: 1
 }
