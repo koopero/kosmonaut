@@ -84,9 +84,19 @@ async function commandExec( command, cmd ) {
 async function commandRun( script, cmd ) {
   await openKosmonaut()
   let core = await kosmonaut.core()
-  let result = await core.onlineFor( () => core.run( script ) ).catch( onError )
-  await closeKosmonaut()
-  process.exit()
+  await core.online( { force: true } )
+    .catch( onError )
+    
+  run()
+
+  async function run() {
+    let stream = await core.run( script )
+    // stream.pipe( process.stdout )
+  }
+
+  // let result = await core.onlineFor(  ).catch( onError )
+  // await closeKosmonaut()
+  // process.exit()
 }
 
 async function commandLoad( files, cmd ) {
@@ -99,6 +109,7 @@ async function commandTerminal( cmd ) {
   await openKosmonaut()
   let core = await kosmonaut.core()
   await core.online()
+    .catch( onError )
 
   core.on('data', data => process.stdout.write( data ) )
   process.stdin.on('data', data => kosmonaut.write( data ) )

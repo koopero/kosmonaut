@@ -7,3 +7,5 @@ FROM {local countdown is 3.} UNTIL countdown = 0 STEP {SET countdown to countdow
     PRINT "..." + countdown.
     WAIT 1. // pauses the script here for 1 second.
 }
+
+STAGE.

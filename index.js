@@ -1,5 +1,6 @@
 const _ = require('lodash')
 const Telnet = require('telnet-client')
+const deindent = require('deindent')
 const Promise = require('bluebird')
 const { TelnetSocket } = require('telnet-stream')
 const net = require('net')
@@ -8,6 +9,8 @@ const fs = require('fs-extra')
 const { PassThrough } = require('stream')
 const glob = require('glob-promise')
 const stripAnsi = require('strip-ansi')
+
+const KODE = require('./src/kode')
 
 const SEARCH = {
   connected: 'Connected to the kOS Terminal Server.',
@@ -19,7 +22,6 @@ const SEARCH = {
   commandError: /__________________________________________.*?VERBOSE DESCRIPTION[^a-zA-Z]+(.*?)__________________________________________/
 }
 
-const EventEmitter = require('eventemitter2')
 
 function randomString( length = 4 ) {
   let mask = 'jebediahkermanJEBEDIAHKERMANBILLBOBVALbillbobval'
@@ -28,34 +30,262 @@ function randomString( length = 4 ) {
   return result
 }
 
+const os = require('os')
+const platform = os.platform()
+const KSP_ROOT = platform == 'darwin' ? 
+  os.homedir()+'/Library/Application Support/Steam/steamapps/common/Kerbal Space Program/'
+  : 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Kerbal Space Program'
 
-const resolveKSP = pathlib.resolve.bind( null, 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Kerbal Space Program')
+const resolveKSP = pathlib.resolve.bind( null, KSP_ROOT )
 const resolveVolume = resolveKSP.bind( null, 'Ships/Script')
 
 const queryTimeout = 1000
 
-class Core extends EventEmitter {
-  constructor( props ) {
-    super( { 
-      wildcard: true
+const Base = require('./src/base')
+
+class Loop extends Base {
+  constructor( core ) {
+    super()
+    this.core = core
+  }
+
+  configure( options ) {
+    options = _.merge( {
+      program: '',
+      telemetry: [],
+      start: false,
+    }, options )
+
+    this.telemetry = options.telemetry
+    this.program = options.program
+
+    if ( options.start )
+      this.start()
+  }
+
+  start() {
+    this._isRunning = true
+    this.core.online()
+    this.loop()
+  }
+
+  async loop() {
+
+    this.emit( 'loop' )
+    let { program } = this
+
+    await this.core.command( program )
+
+    // let value = await this.core.query( 'altitude' )
+    // console.log( 'loop', value )
+
+    if ( this._isRunning )
+      setImmediate( this.loop.bind( this ) )
+  }
+}
+
+class Channel {
+  constructor() {
+    this.value = NaN
+  }
+
+  takeData( { row, col, val } ) {
+    if ( row !== this.row )
+      return
+
+    let off = col - this.col
+
+    if ( off < 0 )
+      return
+
+    let { string } = this
+
+    string = string || ''
+
+    val = val.toString()
+
+    if ( off == 0 )
+      string = val
+    else if ( off > 0 && off <= string.length ) 
+      string = string.substr(0,off) + val 
+
+    // console.log( { off, val })
+
+    if ( string != this.string ) {
+      this.string = string
+      this.value = parseFloat( this.string )
+      return true 
+    }
+  }
+}
+
+class Telemetry extends Base {
+  constructor( core ) {
+    super()
+    this.hideProps( { core } )
+    core.on('data', this._onData.bind( this ) )
+    this.channels = {}
+    // this.setChannel("met", 'missiontime' )
+  }
+
+  setChannels( channels ) {
+    _.map( channels, ( config, key ) => this.setChannel( key, config ) )
+  }
+
+  setChannel( key, config ) {
+    if ( _.isString( config ) )
+      config = { expression: config } 
+
+    let channel = this.channels[key]
+    channel = channel || new Channel()
+    _.merge( channel, config )
+    let { expression } = channel
+    expression = expression || key
+    this.channels[key] = channel 
+
+    if ( _.isUndefined( this.index ) )
+      this.index = key
+  }
+
+  configure( opt ) {
+
+  }
+
+  reset() {
+    // this.channels = {}
+  }
+
+  async run( opt ) {
+    opt = _.merge( {
+      until: '',
+      log: {},
+    }, opt )
+
+    let { until } = opt
+    const { core, channels } = this 
+    let index = 0 
+    let senders = _.map( channels, ( channel, key ) => {
+      let { expression } = channel
+      let sender = `telemetry_channel( ${index++}, "${key}", ${expression} ).\r\n`
+      // console.log( { channel, sender } )
+      return sender
     } )
+
+    senders.reverse()
+
+    let command_name = `telemetry_${randomString(3)}`
+
+    await core.onlineFor( async () => {
+      await core.command( KODE.telemetry_channel )
+      await core.command( `function ${command_name} { \n${senders.join(' ') }\n }`  )
+      await core.command( `clearscreen.`)
+      let command = `${command_name}().\r\n`
+      if ( until ) 
+        command = `until ${until} { \r\n ${command} }\r\n`
+
+      await core.command( command )
+    } )
+
+  
+
+    
+
+    // deindent`
+    //   until ${until} {
+    //     clearscreen.
+    //     ${ senders }
+    //   }
+    // `
+
+  }
+
+  _onData( data ) {
+    const self = this
+    const { channels } = this
+    let changed = false
+
+    data.replace( /\033\[(\d+);(\d+)H\/=(?:\s*?)([\w]+)\./g, onHeader )
+    data.replace( /\033\[(\d+);(\d+)H([+-]?\d+\.?\d*(?:[Ee][+-]?\d+)?)/g, onData )
+
+    function onHeader( match, row, col, name ) {
+      row = parseInt( row )
+      col = parseInt( col )
+      name = _.trim( name )
+      let channel = channels[name]
+      if ( !channel )
+        channel = new Channel()
+        
+      channel.row = row + 1
+      channel.col = col
+    
+      channels[name] = channel
+    }
+
+    function onData( match, row, col, val ) {
+      row = parseInt( row )
+      col = parseInt( col )
+      _.map( channels, ( channel, key ) => { 
+        let dirty = channel.takeData( { row, col, val } )
+        changed = changed || dirty
+
+        let { value } = channel
+
+        if ( isNaN( value ) ) 
+          return 
+
+        if ( self.index == key ) {
+          let time = value 
+          if ( !isNaN( time ) && time != self._lastTime ) {
+            if ( !isNaN( self._lastTime ) ) {
+              self.emit('frame', self.accum )
+              self.accum = null
+            }
+            self._lastTime = time
+          }
+        }
+
+        self.emit('value', value, key )
+        self.accum = self.accum || {}
+        self.accum[ key ] = channel.value
+      } )
+    }
+  }
+}
+
+class Core extends Base {
+  constructor( props ) {
+    super()
     _.merge( this, props )
   }
 
-  async online( temporary = false ) {
+  async online( { 
+    temporary = false,
+    force = false,
+  } = {} ) {
     if ( !temporary )
       this._shouldBeOnline = true
 
     if ( !this._online ) {
       this.kosmonaut = await this.kosmonaut.connectionAtMenu()
-      this.kosmonaut.selectCore( this )
-      await Promise.delay( 200 )
+      await this.kosmonaut.selectCore( this )
       this._online = true
 
+      // this.write( Buffer.from( [ 4 ] ) )
+
       if ( !await this.check() ) {
-        this._online = false
-        throw new Error(`Core failed check trying to go online. Might be busy already.`)
-      }
+        if ( force ) {
+          this.write( Buffer.from( [ 3,3 ] ) )
+
+          if ( !await this.check() ) {
+            throw new Error(`Could not force core online.`)
+          }
+        } else {
+          this._online = false
+          throw new Error(`Core failed check trying to go online. Might be busy already.`)
+        }
+      } 
+
+
 
       this.emit('online')
     }
@@ -87,7 +317,7 @@ class Core extends EventEmitter {
     let onlineFor = this._onlineFor
     onlineFor.push( marker )
 
-    await this.online( true )
+    await this.online( { temporary: true } )
 
     let result = await func( this ).catch( async function ( err ) {
       await cleanup()
@@ -110,8 +340,8 @@ class Core extends EventEmitter {
   async volumeIndex() {
     let volume = await this.query('CORE:VOLUME')
     for ( let index = 0; index < 10; index ++ ) {
-      let test = await this.query(`VOLUME(${index})`)
-      if ( _.isEqual( test, volume ) )
+      let test = await this.queryPrint(`VOLUME(${index}):NAME`)
+      if ( _.isEqual( test, volume.NAME ) )
         return index
     }
   }
@@ -120,7 +350,7 @@ class Core extends EventEmitter {
     let volume = await this.volumeIndex()
     let name = `${volume}:/RUN`+randomString()
     await this.copypath( script, name )
-    await this.command( `RUNPATH("${name}").`)
+    return await this.commandStream( `RUNPATH("${name}").`)
   }
 
   write( data ) {
@@ -180,13 +410,16 @@ class Core extends EventEmitter {
 
     options = _.merge( {
       timeout: 0,
+      willDetach: false,
     }, options )
 
     if ( options.timeout ) 
       timer = setTimeout( listener.bind( {event:'timeout' } ), options.timeout )
 
     this.on('*', listener )
-    this.write( `PRINT "${start1}"+"${start2}". ${command}. PRINT "${stop1}"+"${stop2}".\r\n` )
+    this.write( `PRINT "${start1}"+"${start2}".\r\n${command}.\r\nPRINT "${stop1}"+"${stop2}".\r\n` )
+
+    this._command = stream
 
     return stream
 
@@ -205,14 +438,19 @@ class Core extends EventEmitter {
       if ( errorMatch ) {
         let error = stripAnsi( _.trim( errorMatch[1] ) )
         cleanup()
-        stream.emit('error', new Error(`kOS commaned error: ${error}`)  )
+        stream.emit('error', new Error(`kOS command error: ${error}`)  )
         return
       } 
 
       switch( event ) {
         case 'detach':
           cleanup()
-          stream.emit('error', new Error(`Core detached before command completed`) )
+          self._command = null
+          if ( options.willDetach ) {
+            stream.end()
+          } else {
+            stream.emit('error', new Error(`Core detached before command completed`) )
+          }
         break
 
         case 'timeout':
@@ -267,6 +505,8 @@ class Core extends EventEmitter {
     let tmp = resolveVolume(`${name}-${hash}${ext}`)
     this._tmp = this._tmp || []
     this._tmp[tmp] = true
+
+    console.log('pathTml', { path, tmp })
     return tmp
   }
 
@@ -313,7 +553,7 @@ class Core extends EventEmitter {
 
   async query( variable, keys ) {
     return await this.onlineFor( async () => {
-      let type = await this.queryPrint( variable+':TYPENAME' )
+      let type = await this.queryPrint( `(${variable}):TYPENAME` )
 
       if ( !type ) {
         return null
@@ -428,9 +668,21 @@ class Core extends EventEmitter {
       await Promise.mapSeries( copies, copy => this.copypath( copy[0], copy[1]) )
     })
   }
+
+  loop( config ) {
+    let loop = new Loop( this )
+    loop.configure( config )
+    return loop
+  }
+
+  telemetry( config ) {
+    let telemetry = new Telemetry( this )
+    telemetry.configure( config )
+    return telemetry
+  }
 }
 
-class Kosmonaut extends EventEmitter {
+class Kosmonaut extends Base {
   setMode( mode ) {
     this.mode = mode 
     this.emit('mode', mode )
@@ -456,6 +708,29 @@ class Kosmonaut extends EventEmitter {
       await Promise.fromCallback( cb => this.once('cores', ()=>cb() ) )
     }
     return _.map( this._cores )
+  }
+
+  async quickload( opt ) {
+    if ( _.isString( opt ) )
+      opt = { name: opt }
+
+    opt = _.merge( {  
+      name: '',
+    }, opt )
+
+    let { name } = opt 
+    let command = `Kuniverse:quickload().`
+    let core = await this.core()
+    await core.onlineFor( () => core.command( command, { willDetach: true } ) )
+
+  }
+
+  async revert( opt ) {
+
+  }
+
+  async vessel( opt ) {
+
   }
 
   async telnet() {
@@ -509,20 +784,8 @@ class Kosmonaut extends EventEmitter {
 
     let data = buffer.toString('utf8')
     data = data.split('')
-    // data = data.map( char => {
-    //   let code = char.charCodeAt( 0 )
-    //   if ( code == 0 )
-    //     return '\n'
-    //   if ( code < 15 || code > 127 )
-    //     return ''
-
-    //   return char
-    // })
     data = data.join('')
     let first = data.charCodeAt( 0 )
-    // console.log( { data, buffer, first } )
-
-    
 
     if ( this._core ) 
       this._core.emit('data', data )
@@ -542,6 +805,7 @@ class Kosmonaut extends EventEmitter {
         if ( SEARCH.detaching.exec( data ) || SEARCH.atMenu.exec( data ) ) {
           this._core._online = false
           this._core.emit('detach')
+          this.emit('detach')
           this.close()
         }
       break
@@ -569,12 +833,13 @@ class Kosmonaut extends EventEmitter {
     this.emit('cores')
   }
 
-  selectCore( core ) {
+  async selectCore( core ) {
     if ( this._core == core )
       return true
 
     if ( this.mode == 'menu' )  {
       this.write( core.menuPick + '\n' )
+      await Promise.delay( 200 )
       this._core = core
       this.setMode( 'core' )
       return true

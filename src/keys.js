@@ -1,5 +1,10 @@
-const KEYS = exports 
+/*
+  This is a whitelist of keys mapped to kOS types,
+  to prevent crashes, circularity and bloat in 
+  query results.
+*/
 
+const KEYS = exports 
 KEYS.VesselBasic = {
   'NAME':true,
   'BODY': {
@@ -26,7 +31,7 @@ KEYS.Atmosphere = {
 
 KEYS.Body = {
   'NAME': 1,
-  // 'DESCRIPTION': 1,
+  'DESCRIPTION': 1,
   'MASS': 1,
   'ALTITUDE':1,
   'HASOCEAN':1,
@@ -80,6 +85,13 @@ KEYS.Engine = {
   HASGIMBAL: 1,
   // MODES: 1,
   // MODE: 1,
+}
+
+KEYS.GeoCoordinates = {
+  SUFFIXNAMES: 1,
+  LAT: 1,
+  LNG: 1,
+  TERRAINHEIGHT: 1,
 }
 
 KEYS.LocalVolume = {
@@ -149,7 +161,7 @@ KEYS.Vessel = {
   'AIRSPEED':true,
   'ANGULARMOMENTUM':true,
   'ANGULARVEL':true,
-  'SENSORS':true,
+  // 'SENSORS':true, // Bombs when ship doesn't have sensors
   'LOADED':true,
   'UNPACKED':true,
   'LOADDISTANCE':true,
@@ -158,6 +170,28 @@ KEYS.Vessel = {
   'CONTROLPART':true,
   'DOCKINGPORTS':true,
   'CREWCAPACITY':true,
+}
+
+KEYS.Kuniverse = {
+  CANREVERT: 1,
+  CANREVERTTOLAUNCH: 1,
+  CANREVERTTOEDITOR: 1,
+  ORIGINEDITOR: 1,
+  CANQUICKSAVE: 1,
+  HOURSPERDAY: 1,
+  TIMEWARP: 1,
+  REALTIME: 1,
+}
+
+KEYS.Timewarp = {
+  RATELIST: 1,
+  RAILSRATELIST: 1,
+  PHYSICSRATELIST: 1,
+  MODE: 1,
+  WARP: 1,
+  RATE: 1,
+  PHYSICSDELTAT: 1,
+  ISSETTLED: 1,
 }
 
 KEYS.Version= {
